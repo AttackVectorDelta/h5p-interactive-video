@@ -223,6 +223,11 @@ function InteractiveVideo(params, id, contentData) {
   this.fontSize = 16;
   this.width = 640; // parseInt($container.css('width')); // Get width in px
 
+  // 360 video props.
+  this.user360Draging = false;
+  this.user360DragingLastLocation = null;
+  this.last360UpdateTime = 0;
+
   /**
    * Keep track if the video source is loaded.
    * @private
@@ -365,6 +370,12 @@ function InteractiveVideo(params, id, contentData) {
             self.addQualityChooser();
 
             self.addPlaybackRateChooser();
+
+            // If active handler supports 360 controls and current video is 360 video,
+            // create overlay(s) for mouse event capture and register events.
+            if(self.video.supports360Controls() && self.video.is360()) {
+              self.add360MouseOverlay();
+            }
 
             // Make sure splash screen is removed.
             self.removeSplash();
@@ -2771,6 +2782,93 @@ InteractiveVideo.prototype.updatePlaybackRate = function (rate) {
   else {
     self.controls.$playbackRateButton.click();
   }
+};
+
+InteractiveVideo.prototype.add360MouseOverlay = function () {
+  var self = this;
+
+  // This is quite dumb, however, it may be the only way to do it.
+  // Event listners can not be added to embedded iFrames. The only way to capture
+  // events on top of an iFrame is by using a transparent overlay <div> element.
+  // However, both YouTube and Vimeo have existing native UI elements in their players,
+  // which become unclickable if an overlay is present. The solution? Build the overlay
+  // out of multiple <div> elements, that avoid the existing player UI.
+  let overlayTemplate = self.video.get360OverlayTemplate();
+
+  if(overlayTemplate !== null) {
+    overlayTemplate.forEach((templatePart) => {
+      let e = $(document.createElement('div'));
+      e.attr('class', 'h5p-video-360-overlay');
+      e.css('position', 'absolute');
+
+      Object.keys(templatePart).forEach((key) => {
+        e.css(key, templatePart[key]);
+      });
+
+      e.appendTo(self.$videoWrapper);
+    });
+  } else {
+    let e = $(document.createElement('div'));
+    e.attr('class', 'h5p-video-360-overlay');
+    e.css('position', 'absolute');
+    e.css('left', 0);
+    e.css('top', 0)
+    e.css('height', '100%'),
+    e.css('width', '100%');
+    e.appendTo(self.$videoWrapper);
+  }
+
+  $('.h5p-video-360-overlay').on('mousedown', (event) => {
+    self.user360Draging = true;
+    self.user360DragingLastLocation = {
+      x: event.clientX,
+      y: event.clientY,
+    };
+  });
+
+  $(window).on('mousemove', async (event) => {
+    // Prevent event overflow by waiting atleast 10ms between successful updates.
+    if(Date.now() - self.last360UpdateTime < 10) {
+      return;
+    }
+
+    // If user is not currently dragging or drag has been stopped, return;
+    if(!self.user360Draging || self.user360DragingLastLocation === null) {
+      return;
+    }
+
+    let current360ViewProps = await self.video.get360ViewProperties() ?? {
+      yaw: 0,
+      pitch: 0,
+      roll: 0,
+      fov: 75
+    };
+
+    let diffX = event.clientX - self.user360DragingLastLocation.x;
+    let diffY = event.clientY - self.user360DragingLastLocation.y;
+    let sensitivity = current360ViewProps.fov / 500;
+
+    let normalizedYaw = Math.round((current360ViewProps.yaw - (diffX * sensitivity)) * 1e5) / 1e5;
+    normalizedYaw = Math.max(0, Math.min(360, normalizedYaw % 360 < 0 ? (normalizedYaw + 360) : normalizedYaw));
+
+    await self.video.set360ViewProperties({
+      yaw: normalizedYaw,
+      pitch: Math.max(-90, Math.min(90, (current360ViewProps.pitch + (diffY * sensitivity)))),
+      roll: current360ViewProps.roll,
+      fov: current360ViewProps.fov
+    });
+
+    self.user360DragingLastLocation = {
+      x: event.clientX,
+      y: event.clientY
+    };
+
+    self.last360UpdateTime = Date.now();
+  });
+
+  $(window).on('mouseup', (event) => {
+    self.user360Draging = false;
+  });
 };
 
 /**
