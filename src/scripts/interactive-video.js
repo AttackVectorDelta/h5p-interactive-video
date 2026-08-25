@@ -2826,6 +2826,17 @@ InteractiveVideo.prototype.add360MouseOverlay = function () {
     };
   });
 
+  // Touch events require slightly different logic than mouse events.
+  $('.h5p-video-360-overlay').on('touchstart', (event) => {
+    event.preventDefault();
+  
+    self.user360Draging = true;
+    self.user360DragingLastLocation = {
+      x: event.touches[0].clientX,
+      y: event.touches[0].clientY,
+    };
+  });
+
   $(window).on('mousemove', async (event) => {
     // Prevent event overflow by waiting atleast 10ms between successful updates.
     if(Date.now() - self.last360UpdateTime < 10) {
@@ -2866,7 +2877,48 @@ InteractiveVideo.prototype.add360MouseOverlay = function () {
     self.last360UpdateTime = Date.now();
   });
 
-  $(window).on('mouseup', (event) => {
+  // Touch events require slightly different logic than mouse events.
+  $(window).on('touchmove', async (event) => {
+    // Prevent event overflow by waiting atleast 10ms between successful updates.
+    if(Date.now() - self.last360UpdateTime < 10) {
+      return;
+    }
+
+    // If user is not currently dragging or drag has been stopped, return;
+    if(!self.user360Draging || self.user360DragingLastLocation === null) {
+      return;
+    }
+
+    let current360ViewProps = await self.video.get360ViewProperties() ?? {
+      yaw: 0,
+      pitch: 0,
+      roll: 0,
+      fov: 75
+    };
+
+    let diffX = event.touches[0].clientX - self.user360DragingLastLocation.x;
+    let diffY = event.touches[0].clientY - self.user360DragingLastLocation.y;
+    let sensitivity = current360ViewProps.fov / 500;
+
+    let normalizedYaw = Math.round((current360ViewProps.yaw - (diffX * sensitivity)) * 1e5) / 1e5;
+    normalizedYaw = Math.max(0, Math.min(360, normalizedYaw % 360 < 0 ? (normalizedYaw + 360) : normalizedYaw));
+
+    await self.video.set360ViewProperties({
+      yaw: normalizedYaw,
+      pitch: Math.max(-90, Math.min(90, (current360ViewProps.pitch + (diffY * sensitivity)))),
+      roll: current360ViewProps.roll,
+      fov: current360ViewProps.fov
+    });
+
+    self.user360DragingLastLocation = {
+      x: event.touches[0].clientX,
+      y: event.touches[0].clientY
+    };
+
+    self.last360UpdateTime = Date.now();
+  });
+
+  $(window).on('mouseup touchcancel touchend', (event) => {
     self.user360Draging = false;
   });
 };
