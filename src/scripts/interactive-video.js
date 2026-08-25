@@ -226,7 +226,7 @@ function InteractiveVideo(params, id, contentData) {
   // 360 video props.
   this.user360Draging = false;
   this.user360DragingLastLocation = null;
-  this.last360UpdateTime = 0;
+  this.is360EventSlotAvailable = true;
 
   /**
    * Keep track if the video source is loaded.
@@ -2838,8 +2838,8 @@ InteractiveVideo.prototype.add360MouseOverlay = function () {
   });
 
   $(window).on('mousemove', async (event) => {
-    // Prevent event overflow by waiting atleast 10ms between successful updates.
-    if(Date.now() - self.last360UpdateTime < 10) {
+    // Prevent event overflow.
+    if(!self.is360EventSlotAvailable) {
       return;
     }
 
@@ -2847,6 +2847,8 @@ InteractiveVideo.prototype.add360MouseOverlay = function () {
     if(!self.user360Draging || self.user360DragingLastLocation === null) {
       return;
     }
+
+    self.is360EventSlotAvailable = false;
 
     let current360ViewProps = await self.video.get360ViewProperties() ?? {
       yaw: 0,
@@ -2874,13 +2876,15 @@ InteractiveVideo.prototype.add360MouseOverlay = function () {
       y: event.clientY
     };
 
-    self.last360UpdateTime = Date.now();
+    setTimeout(() => {
+      self.is360EventSlotAvailable = true;
+    }, 10);
   });
 
   // Touch events require slightly different logic than mouse events.
   $(window).on('touchmove', async (event) => {
-    // Prevent event overflow by waiting atleast 10ms between successful updates.
-    if(Date.now() - self.last360UpdateTime < 10) {
+    // Prevent event overflow.
+    if(!self.is360EventSlotAvailable) {
       return;
     }
 
@@ -2888,6 +2892,8 @@ InteractiveVideo.prototype.add360MouseOverlay = function () {
     if(!self.user360Draging || self.user360DragingLastLocation === null) {
       return;
     }
+
+    self.is360EventSlotAvailable = false;
 
     let current360ViewProps = await self.video.get360ViewProperties() ?? {
       yaw: 0,
@@ -2915,11 +2921,14 @@ InteractiveVideo.prototype.add360MouseOverlay = function () {
       y: event.touches[0].clientY
     };
 
-    self.last360UpdateTime = Date.now();
+    setTimeout(() => {
+      self.is360EventSlotAvailable = true;
+    }, 10);
   });
 
   $(window).on('mouseup touchcancel touchend', (event) => {
     self.user360Draging = false;
+    self.is360EventSlotAvailable = true;
   });
 };
 
